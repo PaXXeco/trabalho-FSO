@@ -80,3 +80,12 @@ void cinza(const char* input, const char* output) {
     fclose(in);
     fclose(out);
 }
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        printf("Favor inserir: %s <entrada.bmp> <saida.bmp>\n", argv[0]);
+        return 1;
+    }
+    cinza(argv[1], argv[2]);
+    return 0;
+}
