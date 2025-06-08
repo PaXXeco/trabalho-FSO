@@ -6,8 +6,10 @@
 #include <sys/wait.h>
 #include <sys/shm.h>
 
+// Garante que as estruturas sejam armazenados sem padding
 #pragma pack(1)
 
+//=============================== Estrutura do BMP ===============================
 typedef struct {
     unsigned short type;
     unsigned int sizeFile;
@@ -36,63 +38,71 @@ typedef struct {
     unsigned char red;
 } RgbPixel;
 
-int* generateLaplacianMask(int size) {
-    if (size % 2 == 0 || size < 3 || size > 99) {
-        printf("Tamanho de máscara inválido. Use um ímpar >=3\n");
-        return NULL;
-    }
+//=============================== Aplicação da mediana ===============================
 
-    int *kernel = malloc(size * size * sizeof(int));
-    int center = size / 2;
-    int sum = 0;
-
-    for (int i = 0; i < size; i++) {
-        for (int j = 0; j < size; j++) {
-            int di = abs(i - center);
-            int dj = abs(j - center);
-            int weight = (di + dj == 0) ? 0 : -(di + dj);
-            kernel[i * size + j] = weight;
-            sum += weight;
-        }
-    }
-
-    kernel[center * size + center] = -sum;
-
-    return kernel;
-}
-
-int comparePixels(const void *a, const void *b) {
+// Compara uma sequência de pixels para obter a mediana
+int comparaPixels(const void *a, const void *b) {
     return (*(unsigned char *)a - *(unsigned char *)b);
 }
 
-void applyMedianFilter(unsigned char *input, unsigned char *output, int width, int height, int startRow, int endRow, int maskSize) {
-    int offset = maskSize / 2;
-    int windowSize = maskSize * maskSize;
-    unsigned char *window = malloc(windowSize);
+// Função que aplica o filtro de mediana
+void mediana(unsigned char *in, unsigned char *out, int width, int height, int start_row, int end_row, int tam_masc) {
+    int offset = tam_masc / 2;
+    int tamanho_vetor = tam_masc * tam_masc;
+    unsigned char *janela = malloc(tamanho_vetor);
 
-    for (int y = startRow; y < endRow; y++) {
+    for (int y = start_row; y < end_row; y++) {
         for (int x = 0; x < width; x++) {
-            int index = 0;
+            int idx = 0;
             for (int dy = -offset; dy <= offset; dy++) {
                 for (int dx = -offset; dx <= offset; dx++) {
                     int nx = x + dx;
                     int ny = y + dy;
                     if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
-                        window[index++] = 0;
+                        janela[idx++] = 0;
                     } else {
-                        window[index++] = input[ny * width + nx];
+                        janela[idx++] = in[ny * width + nx];
                     }
                 }
             }
-            qsort(window, windowSize, sizeof(unsigned char), comparePixels);
-            output[y * width + x] = window[windowSize / 2];
+            qsort(janela, tamanho_vetor, sizeof(unsigned char), comparaPixels);
+            out[y * width + x] = janela[tamanho_vetor / 2];
         }
     }
 
-    free(window);
+    free(janela);
 }
 
-void applyLaplacianFilter(unsigned char *input, unsigned char *output, int width, int height, int startRow, int endRow, int maskSize, int *kernel) {
+//=============================== Aplicação da Laplace ===============================
+
+//Função que gera as mascaras de laplace
+int* geraMascLaplace(int size) {
+    if (size % 2 == 0 || size < 3 || size > 7) {
+        printf("Mascara inválida use 3, 5 ou 7\n");
+        return NULL;
+    }
+
+    int *nucleo = malloc(size * size * sizeof(int));
+    int centro = size / 2;
+    int sum = 0;
+
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            int di = abs(i - centro);
+            int dj = abs(j - centro);
+            int weight = (di + dj == 0) ? 0 : -(di + dj);
+            nucleo[i * size + j] = weight;
+            sum += weight;
+        }
+    }
+
+    nucleo[centro * size + centro] = -sum;
+
+    return nucleo;
+}
+
+// Função que aplica o filtro laplaciano
+void laplaciano(unsigned char *input, unsigned char *output, int width, int height, int startRow, int endRow, int maskSize, int *nucleo) {
     int offset = maskSize / 2;
 
     for (int y = startRow; y < endRow; y++) {
@@ -104,7 +114,7 @@ void applyLaplacianFilter(unsigned char *input, unsigned char *output, int width
                     int yi = y + i;
                     if (xi >= 0 && xi < width && yi >= 0 && yi < height) {
                         int k = (i + offset) * maskSize + (j + offset);
-                        acc += input[yi * width + xi] * kernel[k];
+                        acc += input[yi * width + xi] * nucleo[k];
                     }
                 }
             }
@@ -115,17 +125,17 @@ void applyLaplacianFilter(unsigned char *input, unsigned char *output, int width
     }
 }
 
-void saveImage(const char *path, FileHeader fileHeader, ImageHeader imageHeader, unsigned char *data) {
+void salvaImagem(const char *path, FileHeader fh, ImageHeader ih, unsigned char *data) {
     FILE *f = fopen(path, "wb");
-    fwrite(&fileHeader, sizeof(fileHeader), 1, f);
-    fwrite(&imageHeader, sizeof(imageHeader), 1, f);
+    fwrite(&fh, sizeof(fh), 1, f);
+    fwrite(&ih, sizeof(ih), 1, f);
 
-    int padding = (4 - (imageHeader.width * 3) % 4) % 4;
+    int padding = (4 - (ih.width * 3) % 4) % 4;
 
-    for (int i = 0; i < imageHeader.height; i++) {
-        for (int j = 0; j < imageHeader.width; j++) {
-            unsigned char gray = data[i * imageHeader.width + j];
-            RgbPixel px = {gray, gray, gray};
+    for (int i = 0; i < ih.height; i++) {
+        for (int j = 0; j < ih.width; j++) {
+            unsigned char g = data[i * ih.width + j];
+            RgbPixel px = {g, g, g};  
             fwrite(&px, sizeof(RgbPixel), 1, f);
         }
         for (int p = 0; p < padding; p++) fputc(0x00, f);
@@ -134,42 +144,43 @@ void saveImage(const char *path, FileHeader fileHeader, ImageHeader imageHeader,
     fclose(f);
 }
 
+//========================== Main ==========================
 int main(int argc, char *argv[]) {
     if (argc != 8) {
-        printf("Uso: %s <entrada.bmp> <saidaCinza.bmp> <saidaMediana.bmp> <saidaLaplaciano.bmp> <tamMascMediana> <tamMascLaplaciano> <numProcessos>\n", argv[0]);
+        printf("Uso: %s <entrada.bmp> <saidaCinza.bmp> <saidaMediana.bmp> <saidaLaplaciano.bmp> <tamMascMediana> <tamMascLaplaciana> <numProcessos>\n", argv[0]);
         return 1;
     }
 
-    const char *inputPath = argv[1];
-    const char *grayOutputPath = argv[2];
-    const char *medianOutputPath = argv[3];
-    const char *laplacianOutputPath = argv[4];
-    int medianMaskSize = atoi(argv[5]);
-    int laplacianMaskSize = atoi(argv[6]);
-    int numProcesses = atoi(argv[7]);
+    const char *imgEntrada = argv[1];
+    const char *saidaCinza = argv[2];
+    const char *saidaMediana = argv[3];
+    const char *saidaLaplaiana = argv[4];
+    int tamMascMed = atoi(argv[5]);
+    int tamMascLap = atoi(argv[6]);
+    int numProcessos = atoi(argv[7]);
 
-    int *laplacianKernel = generateLaplacianMask(laplacianMaskSize);
-    if (laplacianKernel == NULL) return 1;
+    int *laplaceNucleo = geraMascLaplace(tamMascLap);
+    if (laplaceNucleo == NULL) return 1;
 
-    FILE *f = fopen(inputPath, "rb");
+    FILE *f = fopen(imgEntrada, "rb");
     if (!f) {
-        perror("Erro ao abrir imagem de entrada");
+        perror("Erro ao abrir imagem");
         return 1;
     }
 
-    FileHeader fileHeader;
-    ImageHeader imageHeader;
-    fread(&fileHeader, sizeof(fileHeader), 1, f);
-    fread(&imageHeader, sizeof(imageHeader), 1, f);
+    FileHeader fh;
+    ImageHeader ih;
+    fread(&fh, sizeof(fh), 1, f);
+    fread(&ih, sizeof(ih), 1, f);
 
-    if (fileHeader.type != 0x4D42 || imageHeader.bitsPerPixel != 24) {
-        printf("Formato inválido. Esperado BMP 24 bits\n");
+    if (fh.type != 0x4D42 || ih.bitsPerPixel != 24) {
+        printf("Formato inválido\n");
         fclose(f);
         return 1;
     }
 
-    int width = imageHeader.width;
-    int height = imageHeader.height;
+    int width = ih.width;
+    int height = ih.height;
     int padding = (4 - (width * 3) % 4) % 4;
 
     unsigned char *grayImage = malloc(width * height);
@@ -184,49 +195,49 @@ int main(int argc, char *argv[]) {
     }
     fclose(f);
 
-    saveImage(grayOutputPath, fileHeader, imageHeader, grayImage);
+    salvaImagem(saidaCinza, fh, ih, grayImage);
 
     int shmIdIn = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
-    int shmIdMedian = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
-    int shmIdLaplacian = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
+    int shmIdMediana = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
+    int shmIdLaplaciano = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
 
     unsigned char *shmIn = (unsigned char *)shmat(shmIdIn, NULL, 0);
-    unsigned char *shmMedian = (unsigned char *)shmat(shmIdMedian, NULL, 0);
-    unsigned char *shmLaplacian = (unsigned char *)shmat(shmIdLaplacian, NULL, 0);
+    unsigned char *shmMediana = (unsigned char *)shmat(shmIdMediana, NULL, 0);
+    unsigned char *shmLaplaciano = (unsigned char *)shmat(shmIdLaplaciano, NULL, 0);
 
     memcpy(shmIn, grayImage, width * height);
 
-    int slice = height / numProcesses;
-    for (int i = 0; i < numProcesses; i++) {
+    int slice = height / numProcessos;
+    for (int i = 0; i < numProcessos; i++) {
         if (fork() == 0) {
             int start = i * slice;
-            int end = (i == numProcesses - 1) ? height : (i + 1) * slice;
-            applyMedianFilter(shmIn, shmMedian, width, height, start, end, medianMaskSize);
+            int end = (i == numProcessos - 1) ? height : (i + 1) * slice;
+            mediana(shmIn, shmMediana, width, height, start, end, tamMascMed);
             exit(0);
         }
     }
-    for (int i = 0; i < numProcesses; i++) wait(NULL);
+    for (int i = 0; i < numProcessos; i++) wait(NULL);
 
-    for (int i = 0; i < numProcesses; i++) {
+    for (int i = 0; i < numProcessos; i++) {
         if (fork() == 0) {
             int start = i * slice;
-            int end = (i == numProcesses - 1) ? height : (i + 1) * slice;
-            applyLaplacianFilter(shmMedian, shmLaplacian, width, height, start, end, laplacianMaskSize, laplacianKernel);
+            int end = (i == numProcessos - 1) ? height : (i + 1) * slice;
+            laplaciano(shmMediana, shmLaplaciano, width, height, start, end, tamMascLap, laplaceNucleo);
             exit(0);
         }
     }
-    for (int i = 0; i < numProcesses; i++) wait(NULL);
+    for (int i = 0; i < numProcessos; i++) wait(NULL);
 
-    saveImage(medianOutputPath, fileHeader, imageHeader, shmMedian);
-    saveImage(laplacianOutputPath, fileHeader, imageHeader, shmLaplacian);
+    salvaImagem(saidaMediana, fh, ih, shmMediana);
+    salvaImagem(saidaLaplaiana, fh, ih, shmLaplaciano);
 
-    shmdt(shmIn); shmdt(shmMedian); shmdt(shmLaplacian);
+    shmdt(shmIn); shmdt(shmMediana); shmdt(shmLaplaciano);
     shmctl(shmIdIn, IPC_RMID, NULL);
-    shmctl(shmIdMedian, IPC_RMID, NULL);
-    shmctl(shmIdLaplacian, IPC_RMID, NULL);
+    shmctl(shmIdMediana, IPC_RMID, NULL);
+    shmctl(shmIdLaplaciano, IPC_RMID, NULL);
     free(grayImage);
-    free(laplacianKernel);
+    free(laplaceNucleo);
 
-    printf("Filtro de mediana e Laplaciano aplicados com sucesso.\n");
+    printf("Filtros aplicados!\n");
     return 0;
 }

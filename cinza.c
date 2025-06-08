@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Utiliza para garantir que os dados das estruturas sejam armazenados sem preenchimento (padding) entre os membros.
+// Garante que as estruturas sejam armazenados sem padding
 #pragma pack(1)
 
-//=================== Estruturas do BMP ===============================
+//=============================== Estrutura do BMP ===============================
 typedef struct {
     unsigned short type;
     unsigned int size_file;
@@ -33,6 +33,7 @@ typedef struct {
     unsigned char red;
 } RGB;
 
+//=============================== Converte para escala cinza ===============================
 void cinza(const char* input, const char* output) {
     FILE *in = fopen(input, "rb");
     FILE *out = fopen(output, "wb");
@@ -82,6 +83,7 @@ void cinza(const char* input, const char* output) {
     fclose(out);
 }
 
+//=============================== Main recebe arquivo ===============================
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         printf("Favor inserir: %s <entrada.bmp> <saida.bmp>\n", argv[0]);

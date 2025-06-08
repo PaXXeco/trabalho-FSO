@@ -1,14 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/shm.h>
-#include <string.h>
 
-// Utiliza para garantir que os dados das estruturas sejam armazenados sem preenchimento (padding) entre os membros.
+// Garante que as estruturas sejam armazenados sem padding
 #pragma pack(1)
 
-//=================== Estruturas do BMP ===============================
+//=============================== Estrutura do BMP ===============================
 typedef struct {
     unsigned short type;
     unsigned int size_file;
@@ -37,13 +37,14 @@ typedef struct {
     unsigned char red;
 } RGB;
 
-//================= Funções de Processamento de Imagem ===============================
+//=============================== Aplicação da mediana ===============================
 
-// Ordenar uma sequência de pixels e obter a mediana
-int cmpfunc(const void *a, const void *b) {
+// Compara uma sequência de pixels para obter a mediana
+int comparaPixels(const void *a, const void *b) {
     return (*(unsigned char *)a - *(unsigned char *)b);
 }
 
+// Função que aplica o filtro de mediana
 void mediana(unsigned char *in, unsigned char *out, int width, int height, int start_row, int end_row, int tam_masc) {
     int offset = tam_masc / 2;
     int tamanho_vetor = tam_masc * tam_masc;
@@ -63,7 +64,7 @@ void mediana(unsigned char *in, unsigned char *out, int width, int height, int s
                     }
                 }
             }
-            qsort(janela, tamanho_vetor, sizeof(unsigned char), cmpfunc);
+            qsort(janela, tamanho_vetor, sizeof(unsigned char), comparaPixels);
             out[y * width + x] = janela[tamanho_vetor / 2];
         }
     }
@@ -71,7 +72,7 @@ void mediana(unsigned char *in, unsigned char *out, int width, int height, int s
     free(janela);
 }
 
-void salva_imagem(const char *path, FILEHEADER fh, IMAGEHEADER ih, unsigned char *data) {
+void salvaImagem(const char *path, FILEHEADER fh, IMAGEHEADER ih, unsigned char *data) {
     FILE *f = fopen(path, "wb");
     fwrite(&fh, sizeof(fh), 1, f);
     fwrite(&ih, sizeof(ih), 1, f);
@@ -81,7 +82,7 @@ void salva_imagem(const char *path, FILEHEADER fh, IMAGEHEADER ih, unsigned char
     for (int i = 0; i < ih.height; i++) {
         for (int j = 0; j < ih.width; j++) {
             unsigned char g = data[i * ih.width + j];
-            RGB px = {g, g, g};  // Todos os canais iguais = imagem cinza
+            RGB px = {g, g, g};  
             fwrite(&px, sizeof(RGB), 1, f);
         }
         for (int p = 0; p < padding; p++) fputc(0x00, f);
@@ -90,7 +91,7 @@ void salva_imagem(const char *path, FILEHEADER fh, IMAGEHEADER ih, unsigned char
     fclose(f);
 }
 
-//========================== Função Principal ==========================
+//========================== Main ==========================
 int main(int argc, char *argv[]) {
     if (argc != 5) {
         printf("Uso: %s <entrada.bmp> <saida.bmp> <tam_masc:3|5|7> <n_processos>\n", argv[0]);
@@ -135,7 +136,8 @@ int main(int argc, char *argv[]) {
         for (int j = 0; j < width; j++) {
             RGB px;
             fread(&px, sizeof(RGB), 1, f);
-            cinza[(i * width) + j] = px.red;
+            unsigned char gray = (unsigned char)(0.299 * px.red + 0.587 * px.green + 0.114 * px.blue);
+            cinza[i * width + j] = gray;
         }
         fseek(f, padding, SEEK_CUR);
     }
@@ -165,7 +167,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < n_processos; i++) wait(NULL);
 
     // Salva imagem final
-    salva_imagem(output_path, fh, ih, out_shared);
+    salvaImagem(output_path, fh, ih, out_shared);
 
     // Libera recursos
     shmdt(in_shared);
