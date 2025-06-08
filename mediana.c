@@ -4,6 +4,8 @@
 #include <sys/wait.h>
 #include <sys/shm.h>
 #include <string.h>
+
+// Utiliza para garantir que os dados das estruturas sejam armazenados sem preenchimento (padding) entre os membros.
 #pragma pack(1)
 
 //=================== Estruturas do BMP ===============================
@@ -101,7 +103,7 @@ int main(int argc, char *argv[]) {
     int n_processos = atoi(argv[4]);
 
     if (tam_masc != 3 && tam_masc != 5 && tam_masc != 7) {
-        printf("Máscara inválida. Use 3, 5 ou 7.\n");
+        printf("Mascara inválida. Use 3, 5 ou 7.\n");
         return 1;
     }
 
@@ -118,7 +120,7 @@ int main(int argc, char *argv[]) {
     fread(&ih, sizeof(ih), 1, f);
 
     if (ih.bits_per_pixel != 24) {
-        printf("Formato incompatível: a imagem deve ser BMP de 24 bits em tons de cinza.\n");
+        printf("Formato incompatível\n");
         return 1;
     }
 
@@ -128,12 +130,12 @@ int main(int argc, char *argv[]) {
 
     unsigned char *cinza = malloc(width * height);
 
-    // Lê a imagem assumindo que já está em tons de cinza (R = G = B)
+    // Lê a imagem e converte para tons de cinza
     for (int i = 0; i < height; i++) {
         for (int j = 0; j < width; j++) {
             RGB px;
             fread(&px, sizeof(RGB), 1, f);
-            cinza[(i * width) + j] = px.red; // Basta ler um canal
+            cinza[(i * width) + j] = px.red;
         }
         fseek(f, padding, SEEK_CUR);
     }
@@ -172,6 +174,6 @@ int main(int argc, char *argv[]) {
     shmctl(shmid_out, IPC_RMID, NULL);
     free(cinza);
 
-    printf("Filtro de mediana aplicado com sucesso na imagem já em tons de cinza.\n");
+    printf("Filtro de mediana aplicado\n");
     return 0;
 }

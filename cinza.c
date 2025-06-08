@@ -4,6 +4,7 @@
 // Utiliza para garantir que os dados das estruturas sejam armazenados sem preenchimento (padding) entre os membros.
 #pragma pack(1)
 
+//=================== Estruturas do BMP ===============================
 typedef struct {
     unsigned short type;
     unsigned int size_file;
