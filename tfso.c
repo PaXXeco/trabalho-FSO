@@ -78,25 +78,37 @@ void mediana(unsigned char *in, unsigned char *out, int width, int height, int s
 //Função que gera as mascaras de laplace
 int* geraMascLaplace(int size) {
     if (size % 2 == 0 || size < 3 || size > 7) {
-        printf("Mascara inválida use 3, 5 ou 7\n");
+        printf("Mascara inválida: use 3, 5 ou 7\n");
         return NULL;
     }
-
+    int mid = size / 2;
     int *nucleo = malloc(size * size * sizeof(int));
-    int centro = size / 2;
-    int sum = 0;
 
+    for (int i = 0; i < size * size; i++) { 
+        nucleo[i] = 0;
+    }
+    
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
-            int di = abs(i - centro);
-            int dj = abs(j - centro);
-            int weight = (di + dj == 0) ? 0 : -(di + dj);
-            nucleo[i * size + j] = weight;
-            sum += weight;
+            int dist = abs(i - mid) + abs(j - mid);
+            if (dist >= 1 && dist <= mid) {
+                nucleo[i * size + j] = -(mid - dist + 1);
+            }
         }
     }
 
-    nucleo[centro * size + centro] = -sum;
+    int somaAbs = 0;
+    for (int k = 0; k < size * size; k++) {
+        if (nucleo[k] < 0) somaAbs += -nucleo[k];
+    }
+    nucleo[mid * size + mid] = somaAbs;
+
+    // for(int k=0; k < size; k++) {
+    //     for(int l=0; l < size; l++){
+    //         printf("%d ", nucleo[k * size + l]);
+    //     }
+    //     printf("\n");
+    // }
 
     return nucleo;
 }

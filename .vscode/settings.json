@@ -3,6 +3,7 @@
         "shm.h": "c",
         "wait.h": "c",
         "math.h": "c",
-        "unistd.h": "c"
+        "unistd.h": "c",
+        "stdlib.h": "c"
     }
 }
