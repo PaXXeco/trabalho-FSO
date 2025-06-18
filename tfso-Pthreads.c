@@ -253,3 +253,28 @@ int main(int argc, char *argv[]) {
     printf("Filtros aplicados!\n");
     return 0;
 }
+
+// TEM QUE USAR LPTHREADS NA COMPILAÇÃO
+// Compile with: gcc -o tfso-Pthreads tfso-Pthreads.c -lpthread
+// Run with: ./tfso-Pthreads entrada.bmp saidaCinza.bmp saidaMediana.bmp saidaLaplaciano.bmp 3 3 4
+// Note: Adjust the number of processes as needed.
+// Ensure the input BMP file is in the correct format (24-bit BMP).
+// The output files will be created in the same directory as the executable.
+// The program applies a median filter and a Laplacian filter to the input image using multiple processes.
+// The median filter uses a square mask of size specified by the user (3, 5, or 7).
+// The Laplacian filter also uses a square mask of size specified by the user (3, 5, or 7).
+// The program uses shared memory to communicate between processes.
+// The output images are saved in grayscale format.
+// The program handles padding for BMP files correctly.
+// The program uses the C17 standard for compilation.
+// The program includes error handling for file operations and memory allocation.
+// The program uses the qsort function to sort pixel values for the median filter.
+// The program uses a custom function to generate the Laplacian mask based on the specified size.
+// The program uses the fork system call to create child processes for parallel processing.
+// The program waits for all child processes to complete before proceeding to save the output images.
+// The program prints a message indicating that the filters have been applied successfully.
+// The program is designed to be efficient and handle large images by using shared memory and parallel processing.
+// The program is written in C and uses standard libraries for file I/O, memory management, and process control.
+// The program is structured to be modular, with separate functions for each major task (e.g., median filter, Laplacian filter, image saving).
+// The program uses a packed structure to ensure that the BMP headers are stored without padding.
+// The program includes comments to explain the purpose of each function and important code sections.   
