@@ -2,14 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <sys/shm.h>
+#include <pthread.h>
 
-// Garante que as estruturas sejam armazenados sem padding
+/* Estruturas das informacoes do arquivo BMP */
 #pragma pack(1)
-
-//=============================== Estrutura do BMP ===============================
 typedef struct {
     unsigned short type;
     unsigned int sizeFile;
@@ -37,16 +33,19 @@ typedef struct {
     unsigned char green;
     unsigned char red;
 } RgbPixel;
+#pragma pack()
 
-//=============================== Aplicação da mediana ===============================
+/*==================== Funcoes dos filtros ====================*/
 
-// Compara uma sequência de pixels para obter a mediana
-int comparaPixels(const void *a, const void *b) {
+/* Comparator para qsort utilizado pela mediana */
+static int comparaPixels(const void *a, const void *b) {
     return (*(unsigned char *)a - *(unsigned char *)b);
 }
 
-// Função que aplica o filtro de mediana
-void mediana(unsigned char *in, unsigned char *out, int width, int height, int start_row, int end_row, int tam_masc) {
+/* Aplica o filtro de mediana em uma faixa da imagem */
+static void mediana(unsigned char *in, unsigned char *out,
+                    int width, int height,
+                    int start_row, int end_row, int tam_masc) {
     int offset = tam_masc / 2;
     int tamanho_vetor = tam_masc * tam_masc;
     unsigned char *janela = malloc(tamanho_vetor);
@@ -69,31 +68,24 @@ void mediana(unsigned char *in, unsigned char *out, int width, int height, int s
             out[y * width + x] = janela[tamanho_vetor / 2];
         }
     }
-
     free(janela);
 }
 
-//=============================== Aplicação da Laplace ===============================
-
-//Função que gera as mascaras de laplace
-int* geraMascLaplace(int size) {
+/* Gera o nucleo (mascara) para o filtro de Laplace */
+static int *geraMascLaplace(int size) {
     if (size % 2 == 0 || size < 3 || size > 7) {
-        printf("Mascara inválida: use 3, 5 ou 7\n");
+        printf("Mascara invalida: use 3, 5 ou 7\n");
         return NULL;
     }
     int mid = size / 2;
     int *nucleo = malloc(size * size * sizeof(int));
+    for (int i = 0; i < size * size; i++) nucleo[i] = 0;
 
-    for (int i = 0; i < size * size; i++) { 
-        nucleo[i] = 0;
-    }
-    
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
             int dist = abs(i - mid) + abs(j - mid);
-            if (dist >= 1 && dist <= mid) {
+            if (dist >= 1 && dist <= mid)
                 nucleo[i * size + j] = -(mid - dist + 1);
-            }
         }
     }
 
@@ -102,21 +94,15 @@ int* geraMascLaplace(int size) {
         if (nucleo[k] < 0) somaAbs += -nucleo[k];
     }
     nucleo[mid * size + mid] = somaAbs;
-
-    // for(int k=0; k < size; k++) {
-    //     for(int l=0; l < size; l++){
-    //         printf("%d ", nucleo[k * size + l]);
-    //     }
-    //     printf("\n");
-    // }
-
     return nucleo;
 }
 
-// Função que aplica o filtro laplaciano
-void laplaciano(unsigned char *input, unsigned char *output, int width, int height, int startRow, int endRow, int maskSize, int *nucleo) {
+/* Aplica o filtro laplaciano em uma faixa da imagem */
+static void laplaciano(unsigned char *input, unsigned char *output,
+                       int width, int height,
+                       int startRow, int endRow,
+                       int maskSize, int *nucleo) {
     int offset = maskSize / 2;
-
     for (int y = startRow; y < endRow; y++) {
         for (int x = 0; x < width; x++) {
             int acc = 0;
@@ -137,39 +123,69 @@ void laplaciano(unsigned char *input, unsigned char *output, int width, int heig
     }
 }
 
-void salvaImagem(const char *path, FileHeader fh, ImageHeader ih, unsigned char *data) {
+/* Grava imagem BMP a partir dos dados fornecidos */
+static void salvaImagem(const char *path, FileHeader fh, ImageHeader ih,
+                        unsigned char *data) {
     FILE *f = fopen(path, "wb");
     fwrite(&fh, sizeof(fh), 1, f);
     fwrite(&ih, sizeof(ih), 1, f);
 
     int padding = (4 - (ih.width * 3) % 4) % 4;
-
     for (int i = 0; i < ih.height; i++) {
         for (int j = 0; j < ih.width; j++) {
             unsigned char g = data[i * ih.width + j];
-            RgbPixel px = {g, g, g};  
+            RgbPixel px = {g, g, g};
             fwrite(&px, sizeof(RgbPixel), 1, f);
         }
         for (int p = 0; p < padding; p++) fputc(0x00, f);
     }
-
     fclose(f);
 }
 
-//========================== Main ==========================
+/*========================= Pthreads helpers =========================*/
+
+typedef struct {
+    unsigned char *in;
+    unsigned char *out;
+    int width;
+    int height;
+    int start;
+    int end;
+    int maskSize;
+    int *mask; /* usado apenas no laplaciano */
+} ThreadData;
+
+/* Thread que executa o filtro de mediana */
+static void *threadMediana(void *arg) {
+    ThreadData *t = arg;
+    mediana(t->in, t->out, t->width, t->height, t->start, t->end, t->maskSize);
+    return NULL;
+}
+
+/* Thread que executa o filtro de Laplace */
+static void *threadLaplaciano(void *arg) {
+    ThreadData *t = arg;
+    laplaciano(t->in, t->out, t->width, t->height,
+               t->start, t->end, t->maskSize, t->mask);
+    return NULL;
+}
+
+/*============================== Main ==============================*/
 int main(int argc, char *argv[]) {
     if (argc != 8) {
-        printf("Uso: %s <entrada.bmp> <saidaCinza.bmp> <saidaMediana.bmp> <saidaLaplaciano.bmp> <tamMascMediana> <tamMascLaplaciana> <numProcessos>\n", argv[0]);
+        printf("Uso: %s <entrada.bmp> <saidaCinza.bmp> <saidaMediana.bmp> "
+               "<saidaLaplaciano.bmp> <tamMascMediana> <tamMascLaplaciana> "
+               "<numThreads>\n", argv[0]);
         return 1;
     }
 
     const char *imgEntrada = argv[1];
     const char *saidaCinza = argv[2];
     const char *saidaMediana = argv[3];
-    const char *saidaLaplaiana = argv[4];
+    const char *saidaLaplaciano = argv[4];
     int tamMascMed = atoi(argv[5]);
     int tamMascLap = atoi(argv[6]);
-    int numProcessos = atoi(argv[7]);
+    int numThreads = atoi(argv[7]);
 
     int *laplaceNucleo = geraMascLaplace(tamMascLap);
     if (laplaceNucleo == NULL) return 1;
@@ -177,6 +193,7 @@ int main(int argc, char *argv[]) {
     FILE *f = fopen(imgEntrada, "rb");
     if (!f) {
         perror("Erro ao abrir imagem");
+        free(laplaceNucleo);
         return 1;
     }
 
@@ -186,8 +203,9 @@ int main(int argc, char *argv[]) {
     fread(&ih, sizeof(ih), 1, f);
 
     if (fh.type != 0x4D42 || ih.bitsPerPixel != 24) {
-        printf("Formato inválido\n");
+        printf("Formato invalido\n");
         fclose(f);
+        free(laplaceNucleo);
         return 1;
     }
 
@@ -196,11 +214,15 @@ int main(int argc, char *argv[]) {
     int padding = (4 - (width * 3) % 4) % 4;
 
     unsigned char *grayImage = malloc(width * height);
+    unsigned char *medianaImg = malloc(width * height);
+    unsigned char *laplacianoImg = malloc(width * height);
+
     for (int i = 0; i < height; i++) {
         for (int j = 0; j < width; j++) {
             RgbPixel px;
             fread(&px, sizeof(RgbPixel), 1, f);
-            unsigned char gray = (unsigned char)(0.299 * px.red + 0.587 * px.green + 0.114 * px.blue);
+            unsigned char gray =
+                (unsigned char)(0.299 * px.red + 0.587 * px.green + 0.114 * px.blue);
             grayImage[i * width + j] = gray;
         }
         fseek(f, padding, SEEK_CUR);
@@ -209,72 +231,46 @@ int main(int argc, char *argv[]) {
 
     salvaImagem(saidaCinza, fh, ih, grayImage);
 
-    int shmIdIn = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
-    int shmIdMediana = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
-    int shmIdLaplaciano = shmget(IPC_PRIVATE, width * height, IPC_CREAT | 0666);
+    int slice = height / numThreads;
+    pthread_t threads[ numThreads ];
+    ThreadData tdata[ numThreads ];
 
-    unsigned char *shmIn = (unsigned char *)shmat(shmIdIn, NULL, 0);
-    unsigned char *shmMediana = (unsigned char *)shmat(shmIdMediana, NULL, 0);
-    unsigned char *shmLaplaciano = (unsigned char *)shmat(shmIdLaplaciano, NULL, 0);
-
-    memcpy(shmIn, grayImage, width * height);
-
-    int slice = height / numProcessos;
-    for (int i = 0; i < numProcessos; i++) {
-        if (fork() == 0) {
-            int start = i * slice;
-            int end = (i == numProcessos - 1) ? height : (i + 1) * slice;
-            mediana(shmIn, shmMediana, width, height, start, end, tamMascMed);
-            exit(0);
-        }
+    for (int i = 0; i < numThreads; i++) {
+        int start = i * slice;
+        int end = (i == numThreads - 1) ? height : (i + 1) * slice;
+        tdata[i] = (ThreadData){grayImage, medianaImg, width, height,
+                               start, end, tamMascMed, NULL};
+        pthread_create(&threads[i], NULL, threadMediana, &tdata[i]);
     }
-    for (int i = 0; i < numProcessos; i++) wait(NULL);
 
-    for (int i = 0; i < numProcessos; i++) {
-        if (fork() == 0) {
-            int start = i * slice;
-            int end = (i == numProcessos - 1) ? height : (i + 1) * slice;
-            laplaciano(shmMediana, shmLaplaciano, width, height, start, end, tamMascLap, laplaceNucleo);
-            exit(0);
-        }
+    for (int i = 0; i < numThreads; i++) {
+        pthread_join(threads[i], NULL);
     }
-    for (int i = 0; i < numProcessos; i++) wait(NULL);
 
-    salvaImagem(saidaMediana, fh, ih, shmMediana);
-    salvaImagem(saidaLaplaiana, fh, ih, shmLaplaciano);
+    for (int i = 0; i < numThreads; i++) {
+        int start = i * slice;
+        int end = (i == numThreads - 1) ? height : (i + 1) * slice;
+        tdata[i] = (ThreadData){medianaImg, laplacianoImg, width, height,
+                               start, end, tamMascLap, laplaceNucleo};
+        pthread_create(&threads[i], NULL, threadLaplaciano, &tdata[i]);
+    }
 
-    shmdt(shmIn); shmdt(shmMediana); shmdt(shmLaplaciano);
-    shmctl(shmIdIn, IPC_RMID, NULL);
-    shmctl(shmIdMediana, IPC_RMID, NULL);
-    shmctl(shmIdLaplaciano, IPC_RMID, NULL);
+    for (int i = 0; i < numThreads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    salvaImagem(saidaMediana, fh, ih, medianaImg);
+    salvaImagem(saidaLaplaciano, fh, ih, laplacianoImg);
+
     free(grayImage);
+    free(medianaImg);
+    free(laplacianoImg);
     free(laplaceNucleo);
 
     printf("Filtros aplicados!\n");
     return 0;
 }
 
-// TEM QUE USAR LPTHREADS NA COMPILAÇÃO
-// Compile with: gcc -o tfso-Pthreads tfso-Pthreads.c -lpthread
-// Run with: ./tfso-Pthreads entrada.bmp saidaCinza.bmp saidaMediana.bmp saidaLaplaciano.bmp 3 3 4
-// Note: Adjust the number of processes as needed.
-// Ensure the input BMP file is in the correct format (24-bit BMP).
-// The output files will be created in the same directory as the executable.
-// The program applies a median filter and a Laplacian filter to the input image using multiple processes.
-// The median filter uses a square mask of size specified by the user (3, 5, or 7).
-// The Laplacian filter also uses a square mask of size specified by the user (3, 5, or 7).
-// The program uses shared memory to communicate between processes.
-// The output images are saved in grayscale format.
-// The program handles padding for BMP files correctly.
-// The program uses the C17 standard for compilation.
-// The program includes error handling for file operations and memory allocation.
-// The program uses the qsort function to sort pixel values for the median filter.
-// The program uses a custom function to generate the Laplacian mask based on the specified size.
-// The program uses the fork system call to create child processes for parallel processing.
-// The program waits for all child processes to complete before proceeding to save the output images.
-// The program prints a message indicating that the filters have been applied successfully.
-// The program is designed to be efficient and handle large images by using shared memory and parallel processing.
-// The program is written in C and uses standard libraries for file I/O, memory management, and process control.
-// The program is structured to be modular, with separate functions for each major task (e.g., median filter, Laplacian filter, image saving).
-// The program uses a packed structure to ensure that the BMP headers are stored without padding.
-// The program includes comments to explain the purpose of each function and important code sections.   
+/*
+ * Compilar com: gcc -std=c17 -O2 -o tfso-Pthreads tfso-Pthreads.c -lpthread
+ */
